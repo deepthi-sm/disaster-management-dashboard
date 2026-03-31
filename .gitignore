@@ -1,0 +1,4 @@
+node_modules/
+backend/node_modules/
+seed/node_modules/
+.env
