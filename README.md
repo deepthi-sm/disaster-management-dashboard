@@ -6,7 +6,11 @@ A real-time disaster response system that monitors incidents, manages rescue tea
 
 ## 📸 Dashboard Preview
 
-*(Add your screenshot here later)*
+### Main Dashboard
+![Dashboard 1](dashboard-1.png)
+
+### Live Updates & Charts
+![Dashboard 2](dashboard-2.png)
 
 ---
 
