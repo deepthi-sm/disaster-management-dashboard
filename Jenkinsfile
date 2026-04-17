@@ -12,14 +12,13 @@ pipeline {
 
         stage('Run Simulation') {
             steps {
-                echo "Running simulation for demo..."
-                bat '''
-                cd backend
-                timeout /t 10
-                start /b node simulate.js
-                timeout /t 10
-                taskkill /f /im node.exe
-                '''
+                 echo "Running simulation for demo..."
+                 bat '''
+                 cd backend
+                 start "" /b node simulate.js
+                 ping -n 10 127.0.0.1 > nul
+                 taskkill /f /im node.exe
+                 '''
             }
         }
 
@@ -29,14 +28,16 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+       stage('Deploy') {
             steps {
-                echo "Deploying..."
-                bat '''
-                if not exist deploy mkdir deploy
-                xcopy /E /I /Y * deploy
-                '''
-            }
+            echo "Deploying..."
+            bat '''
+            if exist deploy rmdir /s /q deploy
+            mkdir deploy
+            xcopy backend deploy\\backend /E /I /Y
+            xcopy frontend deploy\\frontend /E /I /Y
+            '''
         }
+}
     }
 }
