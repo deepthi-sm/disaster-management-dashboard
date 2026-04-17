@@ -12,8 +12,14 @@ pipeline {
 
         stage('Run Simulation') {
             steps {
-                echo "Running simulation..."
-                bat 'cd backend && node simulate.js'
+                echo "Running simulation for demo..."
+                bat '''
+                cd backend
+                timeout /t 10
+                start /b node simulate.js
+                timeout /t 10
+                taskkill /f /im node.exe
+                '''
             }
         }
 
