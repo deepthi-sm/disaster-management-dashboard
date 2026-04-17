@@ -29,15 +29,16 @@ pipeline {
         }
 
        stage('Deploy') {
-            steps {
-            echo "Deploying..."
-            bat '''
-            if exist deploy rmdir /s /q deploy
-            mkdir deploy
-            xcopy backend deploy\\backend /E /I /Y
-            xcopy frontend deploy\\frontend /E /I /Y
-            '''
-        }
+    steps {
+        echo "Deploying..."
+        bat '''
+        if exist deploy rmdir /s /q deploy
+        mkdir deploy
+        xcopy backend deploy\\backend /E /I /Y
+        xcopy frontend deploy\\frontend /E /I /Y
+        exit 0
+        '''
+    }
 }
     }
 }
