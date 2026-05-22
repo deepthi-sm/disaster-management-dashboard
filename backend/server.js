@@ -8,6 +8,7 @@ const Redis = require('ioredis')
 const { nano, incidentsDb, teamsDb } = require('./db')
 const { getStats, incidentsByFilter } = require('./db/queries')
 const { updateWithRetry } = require('./db/withRetry')
+const events = require('./redis/events')
 
 const app = express()
 const server = http.createServer(app)
@@ -17,9 +18,8 @@ app.use(cors())
 app.use(express.json())
 app.use(express.static(config.STATIC_DIR))
 
+// Cache client (the durable event log + leaderboard live in redis/events.js).
 const redis = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
-const pub = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
-const sub = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
 
@@ -80,26 +80,33 @@ app.get('/api/teams', async (req, res) => {
 app.patch('/api/incidents/:id/status', async (req, res) => {
   try {
     const { status, team_id, casualties } = req.body
+    let rescuedDelta = 0
     const doc = await updateWithRetry(incidentsDb, req.params.id, (d) => {
+      const prev = d.casualties_rescued || 0
       d.status = status || d.status
       d.assigned_teams = d.assigned_teams || []
       if (team_id && !d.assigned_teams.includes(team_id)) d.assigned_teams.push(team_id)
-      if (casualties !== undefined) d.casualties_rescued = casualties
+      if (casualties !== undefined) {
+        d.casualties_rescued = casualties
+        rescuedDelta = casualties - prev
+      }
       d.last_updated = new Date().toISOString()
       return d
     })
 
     await redis.del('cache:incidents')
 
-    const event = {
+    // Credit the responding team's rescue tally.
+    if (team_id && rescuedDelta > 0) await events.bumpLeaderboard(team_id, rescuedDelta)
+
+    await events.appendEvent({
       type: 'INCIDENT_UPDATED',
       incident_id: doc._id,
       status: doc.status,
       assigned_teams: doc.assigned_teams,
       casualties_rescued: doc.casualties_rescued,
       timestamp: doc.last_updated
-    }
-    await pub.publish('disaster:updates', JSON.stringify(event))
+    })
 
     res.json({ success: true, doc })
   } catch (err) {
@@ -121,15 +128,14 @@ app.patch('/api/teams/:id/status', async (req, res) => {
 
     await redis.del('cache:teams')
 
-    const event = {
+    await events.appendEvent({
       type: 'TEAM_UPDATED',
       team_id: doc._id,
       name: doc.name,
       status: doc.status,
       current_assignment: doc.current_assignment,
       timestamp: doc.last_ping
-    }
-    await pub.publish('disaster:updates', JSON.stringify(event))
+    })
 
     res.json({ success: true, doc })
   } catch (err) {
@@ -147,20 +153,34 @@ app.get('/api/stats', async (req, res) => {
   }
 })
 
-// ─── REDIS PUB/SUB → SOCKET.IO ────────────────────────────────────────────────
-sub.subscribe('disaster:updates', (err) => {
-  if (err) console.error('Redis subscribe error:', err)
-  else console.log('Subscribed to Redis channel: disaster:updates')
+// GET recent events from the durable Redis Stream (chronological).
+app.get('/api/events', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200)
+    res.json(await events.replayEvents(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
-sub.on('message', (channel, message) => {
-  console.log('Redis event received:', message)
-  io.emit('disaster:update', JSON.parse(message))
+// GET top rescuing teams from the Redis sorted-set leaderboard.
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    res.json(await events.topRescuers(10))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
+
+// ─── REDIS STREAM → SOCKET.IO ─────────────────────────────────────────────────
+// Tail the durable stream and push every new event to all browsers.
+events.streamTail((evt) => io.emit('disaster:update', evt))
 
 // ─── SOCKET.IO ────────────────────────────────────────────────────────────────
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log('Browser connected:', socket.id)
+  // Replay recent history so a freshly opened dashboard isn't empty.
+  try { socket.emit('disaster:replay', await events.replayEvents(50)) } catch (_) { /* ignore */ }
   socket.on('disconnect', () => console.log('Browser disconnected:', socket.id))
 })
 
