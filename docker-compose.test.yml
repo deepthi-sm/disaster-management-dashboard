@@ -1,0 +1,53 @@
+# Ephemeral, deterministic stack for CI tests. Throwaway databases (no volumes)
+# on the compose network, plus the test runners. Tests reach the databases by
+# service name, so this works the same whether run on the host or by Jenkins
+# over the Docker socket. Used by the Jenkinsfile Test stage:
+#
+#   docker compose -f docker-compose.test.yml up -d --wait couchdb-test redis-test
+#   docker compose -f docker-compose.test.yml run --rm tests
+#   docker compose -f docker-compose.test.yml run --rm frontend-tests
+#   docker compose -f docker-compose.test.yml down -v
+
+services:
+  couchdb-test:
+    image: couchdb:3.3
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: Admin123$$
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://admin:Admin123$$@localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis-test:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    environment:
+      COUCHDB_HOST: couchdb-test
+      COUCHDB_PORT: "5984"
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: Admin123$$
+      REDIS_HOST: redis-test
+      REDIS_PORT: "6379"
+    depends_on:
+      couchdb-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+  frontend-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-test

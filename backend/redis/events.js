@@ -39,13 +39,15 @@ async function replayEvents(count = 50) {
 
 // Continuously tail new stream entries and hand each to onEvent. Starts from
 // "now" ($) so only live events are pushed (history comes from replayEvents).
+// Returns a stop() function for clean shutdown (used by tests). BLOCK 1000 lets
+// the loop notice the stop flag promptly instead of blocking forever.
 function streamTail(onEvent) {
   let lastId = '$'
+  let stopped = false
   ;(async function loop() {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    while (!stopped) {
       try {
-        const res = await tailClient.xread('BLOCK', 0, 'COUNT', 10, 'STREAMS', STREAM, lastId)
+        const res = await tailClient.xread('BLOCK', 1000, 'COUNT', 10, 'STREAMS', STREAM, lastId)
         if (!res) continue
         for (const [, messages] of res) {
           for (const [id, fields] of messages) {
@@ -54,11 +56,19 @@ function streamTail(onEvent) {
           }
         }
       } catch (err) {
+        if (stopped) break
         console.error('stream tail error:', err.message)
         await new Promise((r) => setTimeout(r, 1000))
       }
     }
   })()
+  return () => { stopped = true }
+}
+
+// Close Redis connections so a process (e.g. a test run) can exit cleanly.
+function shutdown() {
+  client.disconnect()
+  tailClient.disconnect()
 }
 
 // Credit a team with `delta` rescued people.
@@ -83,4 +93,6 @@ module.exports = {
   streamTail,
   bumpLeaderboard,
   topRescuers,
+  shutdown,
+  client,
 }

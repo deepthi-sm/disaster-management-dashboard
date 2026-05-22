@@ -22,3 +22,18 @@ COPY --from=frontend-build /fe/dist ./frontend
 ENV STATIC_DIR=/app/frontend
 EXPOSE 3001
 CMD ["node", "server.js"]
+
+# ---- Test targets (used by docker-compose.test.yml; include devDependencies) ----
+FROM node:20-alpine AS test
+WORKDIR /app
+COPY backend/package*.json ./
+RUN npm ci
+COPY backend/ ./
+CMD ["npm", "test"]
+
+FROM node:20-alpine AS frontend-test
+WORKDIR /fe
+COPY dmd-frontend/package*.json ./
+RUN npm ci
+COPY dmd-frontend/ ./
+CMD ["npm", "test"]

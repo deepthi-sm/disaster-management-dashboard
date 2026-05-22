@@ -174,7 +174,7 @@ app.get('/api/leaderboard', async (req, res) => {
 
 // ─── REDIS STREAM → SOCKET.IO ─────────────────────────────────────────────────
 // Tail the durable stream and push every new event to all browsers.
-events.streamTail((evt) => io.emit('disaster:update', evt))
+const stopTail = events.streamTail((evt) => io.emit('disaster:update', evt))
 
 // ─── SOCKET.IO ────────────────────────────────────────────────────────────────
 io.on('connection', async (socket) => {
@@ -203,4 +203,11 @@ if (require.main === module) {
   })
 }
 
-module.exports = { app, server, io }
+// Clean shutdown for tests: stop the stream tail and close Redis connections.
+async function shutdown() {
+  stopTail()
+  try { await redis.quit() } catch (_) { /* ignore */ }
+  events.shutdown()
+}
+
+module.exports = { app, server, io, shutdown }
