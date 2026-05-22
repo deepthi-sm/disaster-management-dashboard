@@ -1,0 +1,33 @@
+# Jenkins-in-Docker. Kept separate from the app stack so the pipeline can run
+# `docker compose` on the app without touching Jenkins itself.
+#
+#   docker compose -f jenkins.compose.yml up -d --build
+#   open http://localhost:8080   (login: admin / admin)
+#
+# The pipeline builds/runs sibling containers through the mounted Docker socket,
+# so it behaves identically on macOS and Windows Docker Desktop.
+#
+# WINDOWS NOTE: if Docker Desktop complains about the socket path, change the
+# source below to "//var/run/docker.sock" (leading double slash).
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: jenkins.Dockerfile
+    user: root                       # so the container can use the host socket
+    environment:
+      JENKINS_ADMIN_ID: admin
+      JENKINS_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The local git repo, mounted read-only so a Pipeline-from-SCM job can
+      # clone it via file:///workspace/repo (swap for the GitHub URL later).
+      - ./:/workspace/repo:ro
+
+volumes:
+  jenkins-home:
