@@ -1,4 +1,8 @@
-const nano = require('nano')('http://admin:Admin123$@localhost:5984')
+// Seeds CouchDB with demo incidents and teams.
+// Connection comes from the shared config (env-driven), so the same script runs
+// locally and as the one-shot `seed` service in docker-compose.
+const config = require('./config')
+const nano = require('nano')(config.COUCHDB_URL)
 
 const teams = [
   {
@@ -225,7 +229,7 @@ const incidents = [
 async function seed() {
   try {
     for (const dbName of ['incidents', 'teams']) {
-      try { await nano.db.destroy(dbName) } catch (e) {}
+      try { await nano.db.destroy(dbName) } catch (e) { /* may not exist */ }
       await nano.db.create(dbName)
       console.log(`Created database: ${dbName}`)
     }
@@ -234,15 +238,18 @@ async function seed() {
     const teamsDb = nano.use('teams')
 
     await teamsDb.bulk({ docs: teams })
-    console.log('8 teams inserted!')
+    console.log(`${teams.length} teams inserted!`)
 
     await incidentsDb.bulk({ docs: incidents })
-    console.log('8 incidents inserted!')
+    console.log(`${incidents.length} incidents inserted!`)
 
     console.log('CouchDB seeded successfully!')
   } catch (err) {
     console.error('Seeding error:', err.message)
+    process.exitCode = 1
   }
 }
 
-seed()
+if (require.main === module) seed()
+
+module.exports = { seed, teams, incidents }

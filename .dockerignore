@@ -1,0 +1,7 @@
+**/node_modules
+frontend
+dmd-frontend/dist
+.git
+*.log
+.DS_Store
+deploy

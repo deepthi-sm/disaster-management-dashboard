@@ -1,0 +1,109 @@
+# Full application stack. Runs identically on macOS and Windows Docker Desktop.
+#   docker compose up -d --wait        # bring everything up, auto-seeds
+#   docker compose --profile sim up -d # also start the live simulator
+#
+# NOTE: the CouchDB password is "Admin123$". Inside compose, $ must be written
+# as $$ to avoid variable interpolation — the real value remains Admin123$.
+
+services:
+  couchdb:
+    image: couchdb:3.3
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: Admin123$$
+    volumes:
+      - couch-data:/opt/couchdb/data
+    ports:
+      - "5984:5984"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://admin:Admin123$$@localhost:5984/_up"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: finishes the single-node cluster so the system databases
+  # (_users / _replicator / _global_changes) exist. Idempotent.
+  couch-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      couchdb:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        curl -fsS -X POST http://admin:Admin123$$@couchdb:5984/_cluster_setup
+        -H 'Content-Type: application/json'
+        -d '{"action":"finish_cluster"}' || true
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: idempotently seeds CouchDB with demo data + design docs/indexes.
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "seed.js"]
+    environment:
+      COUCHDB_HOST: couchdb
+      COUCHDB_PORT: "5984"
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: Admin123$$
+    depends_on:
+      couchdb:
+        condition: service_healthy
+      couch-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      COUCHDB_HOST: couchdb
+      COUCHDB_PORT: "5984"
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: Admin123$$
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      PORT: "3001"
+      STATIC_DIR: /app/frontend
+    ports:
+      - "3001:3001"
+    depends_on:
+      couchdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Live data generator. Only runs with: docker compose --profile sim up
+  simulate:
+    profiles: ["sim"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "simulate.js"]
+    environment:
+      TARGET_BASE_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  couch-data:
