@@ -51,6 +51,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     command: ["node", "seed.js"]
     environment:
       COUCHDB_HOST: couchdb
@@ -68,6 +69,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     environment:
       COUCHDB_HOST: couchdb
       COUCHDB_PORT: "5984"
@@ -98,6 +100,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     command: ["node", "simulate.js"]
     environment:
       TARGET_BASE_URL: http://backend:3001

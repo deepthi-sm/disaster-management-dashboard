@@ -8,6 +8,10 @@ import react from '@vitejs/plugin-react'
 // Test config lives here too (vitest reads this file; `vite build` ignores it).
 export default defineConfig({
   plugins: [react()],
+  // Ensure the automatic JSX runtime even when the React plugin isn't active
+  // (e.g. under Vitest, which runs its own Vite instance). Without this, .jsx
+  // falls back to the classic runtime and throws "React is not defined".
+  esbuild: { jsx: 'automatic' },
   build: {
     outDir: '../frontend',
     emptyOutDir: true,
