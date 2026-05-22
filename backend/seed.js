@@ -1,8 +1,10 @@
-// Seeds CouchDB with demo incidents and teams.
-// Connection comes from the shared config (env-driven), so the same script runs
-// locally and as the one-shot `seed` service in docker-compose.
-const config = require('./config')
-const nano = require('nano')(config.COUCHDB_URL)
+// Seeds CouchDB with demo incidents and teams + design docs / Mango indexes.
+// Idempotent: re-running upserts (preserving _rev) and never errors. Pass
+// --reset to destroy and rebuild the databases from scratch.
+// Connection comes from the shared db module (env-driven), so the same script
+// runs locally and as the one-shot `seed` service in docker-compose.
+const { nano, incidentsDb, teamsDb } = require('./db')
+const { applySchema } = require('./db/designdocs')
 
 const teams = [
   {
@@ -226,24 +228,48 @@ const incidents = [
   }
 ]
 
-async function seed() {
+async function ensureDb(name) {
   try {
-    for (const dbName of ['incidents', 'teams']) {
-      try { await nano.db.destroy(dbName) } catch (e) { /* may not exist */ }
-      await nano.db.create(dbName)
-      console.log(`Created database: ${dbName}`)
+    await nano.db.create(name)
+    console.log(`Created database: ${name}`)
+  } catch (e) {
+    if (e.statusCode === 412) console.log(`Database exists: ${name}`)
+    else throw e
+  }
+}
+
+// Insert or update a doc by _id, preserving the current _rev so re-seeding
+// never hits a 409 conflict.
+async function upsertDoc(db, doc) {
+  try {
+    const existing = await db.get(doc._id)
+    await db.insert({ ...doc, _rev: existing._rev })
+  } catch (e) {
+    if (e.statusCode === 404) await db.insert(doc)
+    else throw e
+  }
+}
+
+async function seed() {
+  const reset = process.argv.includes('--reset')
+  try {
+    for (const name of ['incidents', 'teams']) {
+      if (reset) {
+        try { await nano.db.destroy(name); console.log(`Destroyed: ${name}`) } catch (e) { /* may not exist */ }
+      }
+      await ensureDb(name)
     }
 
-    const incidentsDb = nano.use('incidents')
-    const teamsDb = nano.use('teams')
+    await applySchema(incidentsDb, teamsDb)
+    console.log('Applied design docs + Mango indexes')
 
-    await teamsDb.bulk({ docs: teams })
-    console.log(`${teams.length} teams inserted!`)
+    for (const t of teams) await upsertDoc(teamsDb, t)
+    console.log(`${teams.length} teams upserted`)
 
-    await incidentsDb.bulk({ docs: incidents })
-    console.log(`${incidents.length} incidents inserted!`)
+    for (const i of incidents) await upsertDoc(incidentsDb, i)
+    console.log(`${incidents.length} incidents upserted`)
 
-    console.log('CouchDB seeded successfully!')
+    console.log('CouchDB seeded successfully (idempotent)')
   } catch (err) {
     console.error('Seeding error:', err.message)
     process.exitCode = 1

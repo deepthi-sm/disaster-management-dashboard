@@ -4,8 +4,10 @@ const cors = require('cors')
 const http = require('http')
 const path = require('path')
 const { Server } = require('socket.io')
-const nano = require('nano')(config.COUCHDB_URL)
 const Redis = require('ioredis')
+const { nano, incidentsDb, teamsDb } = require('./db')
+const { getStats, incidentsByFilter } = require('./db/queries')
+const { updateWithRetry } = require('./db/withRetry')
 
 const app = express()
 const server = http.createServer(app)
@@ -18,9 +20,6 @@ app.use(express.static(config.STATIC_DIR))
 const redis = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
 const pub = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
 const sub = new Redis({ host: config.REDIS_HOST, port: config.REDIS_PORT, family: 4 })
-
-const incidentsDb = nano.use('incidents')
-const teamsDb = nano.use('teams')
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
 
@@ -39,14 +38,18 @@ app.get('/api/health', async (req, res) => {
   res.status(health.status === 'ok' ? 200 : 503).json(health)
 })
 
-// GET all incidents (with Redis cache)
+// GET incidents. Optional ?status=&severity=&type= filters run as Mango
+// queries (idx-status / idx-severity / idx-type). The unfiltered list is
+// served from the 10s Redis cache.
 app.get('/api/incidents', async (req, res) => {
   try {
-    const cached = await redis.get('cache:incidents')
-    if (cached) {
-      console.log('Serving incidents from Redis cache')
-      return res.json(JSON.parse(cached))
+    const { status, severity, type } = req.query
+    if (status || severity || type) {
+      const docs = await incidentsByFilter({ status, severity, type })
+      return res.json(docs)
     }
+    const cached = await redis.get('cache:incidents')
+    if (cached) return res.json(JSON.parse(cached))
     const result = await incidentsDb.list({ include_docs: true })
     const incidents = result.rows.map(r => r.doc).filter(doc => !doc._id.startsWith('_design'))
     await redis.setex('cache:incidents', 10, JSON.stringify(incidents))
@@ -73,25 +76,21 @@ app.get('/api/teams', async (req, res) => {
   }
 })
 
-// PATCH update incident status
+// PATCH update incident status (409-safe via updateWithRetry)
 app.patch('/api/incidents/:id/status', async (req, res) => {
   try {
     const { status, team_id, casualties } = req.body
-    const doc = await incidentsDb.get(req.params.id)
+    const doc = await updateWithRetry(incidentsDb, req.params.id, (d) => {
+      d.status = status || d.status
+      d.assigned_teams = d.assigned_teams || []
+      if (team_id && !d.assigned_teams.includes(team_id)) d.assigned_teams.push(team_id)
+      if (casualties !== undefined) d.casualties_rescued = casualties
+      d.last_updated = new Date().toISOString()
+      return d
+    })
 
-    doc.status = status || doc.status
-    if (team_id && !doc.assigned_teams.includes(team_id)) {
-      doc.assigned_teams.push(team_id)
-    }
-    if (casualties !== undefined) doc.casualties_rescued = casualties
-    doc.last_updated = new Date().toISOString()
-
-    await incidentsDb.insert(doc)
-
-    // Clear cache so next request gets fresh data
     await redis.del('cache:incidents')
 
-    // Publish event to Redis
     const event = {
       type: 'INCIDENT_UPDATED',
       incident_id: doc._id,
@@ -104,21 +103,22 @@ app.patch('/api/incidents/:id/status', async (req, res) => {
 
     res.json({ success: true, doc })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    const code = err.statusCode === 404 ? 404 : 500
+    res.status(code).json({ error: err.message })
   }
 })
 
-// PATCH update team status
+// PATCH update team status (409-safe via updateWithRetry)
 app.patch('/api/teams/:id/status', async (req, res) => {
   try {
     const { status, current_assignment } = req.body
-    const doc = await teamsDb.get(req.params.id)
+    const doc = await updateWithRetry(teamsDb, req.params.id, (d) => {
+      d.status = status || d.status
+      d.current_assignment = current_assignment !== undefined ? current_assignment : d.current_assignment
+      d.last_ping = new Date().toISOString()
+      return d
+    })
 
-    doc.status = status || doc.status
-    doc.current_assignment = current_assignment !== undefined ? current_assignment : doc.current_assignment
-    doc.last_ping = new Date().toISOString()
-
-    await teamsDb.insert(doc)
     await redis.del('cache:teams')
 
     const event = {
@@ -133,27 +133,15 @@ app.patch('/api/teams/:id/status', async (req, res) => {
 
     res.json({ success: true, doc })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    const code = err.statusCode === 404 ? 404 : 500
+    res.status(code).json({ error: err.message })
   }
 })
 
-// GET stats summary
+// GET stats summary — computed by CouchDB map-reduce views (see db/queries.js)
 app.get('/api/stats', async (req, res) => {
   try {
-    const [incResult, teamResult] = await Promise.all([
-      incidentsDb.list({ include_docs: true }),
-      teamsDb.list({ include_docs: true })
-    ])
-    const incidents = incResult.rows.map(r => r.doc).filter(doc => !doc._id.startsWith('_design'))
-    const teams = teamResult.rows.map(r => r.doc).filter(doc => !doc._id.startsWith('_design'))
-
-    const stats = {
-      critical: incidents.filter(i => i.severity === 'critical').length,
-      active: incidents.filter(i => i.status !== 'resolved').length,
-      deployed: teams.filter(t => t.status === 'deployed').length,
-      rescued: incidents.reduce((sum, i) => sum + (i.casualties_rescued || 0), 0)
-    }
-    res.json(stats)
+    res.json(await getStats())
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
