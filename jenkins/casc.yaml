@@ -25,7 +25,10 @@ jobs:
           cpsScm {
             scm {
               git {
-                remote { url('file:///workspace/repo') }
+                // Clones the project from GitHub. If you make the repo private,
+                // add a credentials('<id>') line here and configure that
+                // credential in casc (or the UI) — public repos need nothing.
+                remote { url('https://github.com/deepthi-sm/disaster-management-dashboard.git') }
                 branch('*/main')
               }
             }

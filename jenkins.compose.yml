@@ -25,8 +25,9 @@ services:
     volumes:
       - jenkins-home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
-      # The local git repo, mounted read-only so a Pipeline-from-SCM job can
-      # clone it via file:///workspace/repo (swap for the GitHub URL later).
+      # The pipeline job clones from GitHub (see jenkins/casc.yaml). This
+      # read-only mount is an optional offline fallback: point the job at
+      # file:///workspace/repo if you ever need to build without network.
       - ./:/workspace/repo:ro
 
 volumes:

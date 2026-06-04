@@ -77,33 +77,78 @@ This project demonstrates how modern technologies can be used to build a scalabl
 CouchDB enables flexible data modeling, while Redis enhances performance and enables real-time communication. Together with APIs and live updates, the system closely simulates real-world disaster response workflows.
 
 # Tech Stack
-Frontend: HTML, CSS, JavaScript
-Backend: Node.js / Python
-Database: CouchDB (NoSQL)
-Caching & Messaging: Redis
-Realtime Communication: Socket.io
-Charts: Chart.js
+Frontend: React + Vite, Recharts, Leaflet
+Backend: Node.js (Express 5), Socket.io
+Database: CouchDB (NoSQL) — Mango queries + design-doc views
+Caching & Messaging: Redis (Streams event log + sorted-set leaderboard)
+Realtime Communication: Socket.io over Redis
+DevOps: Docker + Docker Compose, Jenkins (Configuration-as-Code)
 
- Setup Instructions
-# Install dependencies
-npm install
+---
 
-# Start CouchDB
-http://localhost:5984
+# Quick Start (containerized)
 
-# Start Redis
-redis-server
+The whole stack is containerized — you only need Docker Desktop.
 
-# Seed database
-node seed.js
+```bash
+# Bring up CouchDB + Redis + backend + frontend (auto-seeds, waits for health)
+docker compose up -d --wait
 
-# Start server
-node server.js
+# Optional: also start the live data simulator
+docker compose --profile sim up -d
 
-# Run simulation
-node simulate.js
+# Open the dashboard
+http://localhost:3001
+```
 
+`docker compose down -v` tears it all down.
 
-# DevOps Note
+---
 
-This repository includes minor commits (like pipeline test changes) used to validate CI/CD workflows.
+# CI/CD Pipeline (Jenkins)
+
+A full Jenkins pipeline runs inside Docker and builds, tests, deploys, and
+monitors the app. Jenkins is provisioned automatically via **Configuration as
+Code** + **Job DSL** — no manual UI setup.
+
+### Run it
+
+```bash
+# Build & start the Jenkins controller (Docker CLI + Compose baked in)
+docker compose -f jenkins.compose.yml up -d --build
+
+# Open Jenkins and run the "disaster-dashboard" job
+http://localhost:8080          # login: admin / admin
+```
+
+The job clones this repo from GitHub (`main`) and runs `Jenkinsfile`.
+
+### Pipeline stages
+
+| Stage | What it does |
+|-------|--------------|
+| **Checkout** | Clones the repo from GitHub. |
+| **Lint** | ESLint on the frontend (runs in the test image). |
+| **Test** | Spins up throwaway CouchDB + Redis, runs backend integration tests (node:test + supertest) and frontend unit tests (vitest), then tears the test stack down. |
+| **Build** | Multi-stage Docker build: compiles the React app and bakes it into the API image. |
+| **Deploy** | `docker compose up -d --wait` — recreates the live stack; healthchecks gate readiness, seed runs idempotently. |
+| **Monitor** | Reports the health of every running service and verifies the `/api/health` endpoint from inside the container network. |
+
+### Architecture
+
+- **`Dockerfile`** — multi-stage: `frontend-build` → `runtime` (API serving the built SPA), plus `test` / `frontend-test` targets.
+- **`docker-compose.yml`** — the production app stack (CouchDB, Redis, seed, backend, optional simulator) with healthchecks and dependency ordering.
+- **`docker-compose.test.yml`** — ephemeral, volume-less databases + test runners for CI.
+- **`jenkins.Dockerfile` / `jenkins.compose.yml`** — Jenkins-in-Docker with the Docker CLI; runs sibling containers via the mounted host socket.
+- **`jenkins/casc.yaml`** — Configuration-as-Code: admin login + auto-created pipeline job.
+
+---
+
+# Manual Setup (without Docker)
+
+```bash
+npm install          # in backend/ and dmd-frontend/
+node seed.js         # seed CouchDB (running on :5984)
+node server.js       # start API
+node simulate.js     # optional: live updates
+```

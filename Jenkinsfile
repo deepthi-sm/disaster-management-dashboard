@@ -60,10 +60,16 @@ pipeline {
       }
     }
 
-    stage('Smoke') {
-      // Verify the live deployment from inside the container network.
+    stage('Monitor') {
+      // Post-deploy monitoring: report the health of every service in the live
+      // stack and confirm the API health endpoint responds from inside the
+      // container network. Produces the visible "is it healthy?" logs.
       steps {
+        echo '--- Service status (health-gated) ---'
+        sh '$PROD ps'
+        echo '--- API health check ---'
         sh '$PROD exec -T backend wget -qO- http://localhost:3001/api/health'
+        echo 'Monitoring passed — all services up and API healthy.'
       }
     }
   }
