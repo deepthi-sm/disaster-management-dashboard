@@ -9,6 +9,13 @@ pipeline {
     disableConcurrentBuilds()
   }
 
+  triggers {
+    // Poll GitHub every minute. When a new commit lands on the built branch,
+    // Jenkins rebuilds, redeploys, and the live site updates automatically.
+    // (Webhooks can't reach Jenkins on localhost, so we poll instead.)
+    pollSCM('* * * * *')
+  }
+
   environment {
     // Stable project names so the deployed stack is replaced (not duplicated)
     // on every run, and the ephemeral test stack stays isolated from it.
