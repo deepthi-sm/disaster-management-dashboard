@@ -1,0 +1,36 @@
+# Jenkins Configuration as Code: sets up a login and auto-creates the pipeline
+# job pointing at the local repo. No manual UI clicking needed for the demo.
+jenkins:
+  systemMessage: "Disaster Management Dashboard — CI/CD (managed by Configuration as Code)"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD:-admin}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+
+jobs:
+  - script: |
+      pipelineJob('disaster-dashboard') {
+        description('Build, test and deploy the Disaster Management Dashboard')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('file:///workspace/repo') }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(false)
+          }
+        }
+      }
