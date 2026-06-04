@@ -16,15 +16,10 @@ RUN apt-get update && \
     apt-get install -y docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
-# Install the plugins the pipeline needs (Pipeline, Git) plus Configuration as
-# Code + Job DSL used to auto-provision the job.
+# Pre-bake the Pipeline + Git plugins so the job can build even if you skip
+# plugin selection in the setup wizard. The wizard itself still runs, so the
+# Jenkins UI is configured by hand (unlock -> plugins -> create the job).
 COPY jenkins/plugins.txt /usr/share/jenkins/ref/plugins.txt
 RUN jenkins-plugin-cli --plugins -f /usr/share/jenkins/ref/plugins.txt
 
-# Configuration as Code lives outside JENKINS_HOME (which is a runtime volume).
-COPY jenkins/casc.yaml /var/jenkins_conf/casc.yaml
-ENV CASC_JENKINS_CONFIG=/var/jenkins_conf/casc.yaml
-
-# Skip the setup wizard — security + the pipeline job come from casc.yaml.
-ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
 USER jenkins

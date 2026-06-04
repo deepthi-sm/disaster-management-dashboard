@@ -2,7 +2,7 @@
 # `docker compose` on the app without touching Jenkins itself.
 #
 #   docker compose -f jenkins.compose.yml up -d --build
-#   open http://localhost:8080   (login: admin / admin)
+#   open http://localhost:8081   (then complete the first-run setup wizard)
 #
 # The pipeline builds/runs sibling containers through the mounted Docker socket,
 # so it behaves identically on macOS and Windows Docker Desktop.
@@ -16,11 +16,8 @@ services:
       context: .
       dockerfile: jenkins.Dockerfile
     user: root                       # so the container can use the host socket
-    environment:
-      JENKINS_ADMIN_ID: admin
-      JENKINS_ADMIN_PASSWORD: admin
     ports:
-      - "8080:8080"
+      - "8081:8080"                  # host 8081 (8080 is taken by another app)
       - "50000:50000"
     volumes:
       - jenkins-home:/var/jenkins_home
