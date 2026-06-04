@@ -206,7 +206,7 @@ export default function App() {
       <div className="dock">
         <div className="panel">
           <div className="panel-head">
-            <span className="title"><span className="accent-bar" />Live Event Stream &middot; Redis Stream</span>
+            <span className="title"><span className="accent-bar" />Live Event Stream </span>
             <button className="expand-btn" onClick={() => setExpand('events')}>Expand &#10530;</button>
           </div>
           <div className="panel-body events">
