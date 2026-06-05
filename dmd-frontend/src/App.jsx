@@ -115,7 +115,7 @@ export default function App() {
         <div className="brand">
           <div className="brand-mark">&#9672;</div>
           <div>
-            <h1>Disaster Response Command Center 2</h1>
+            <h1>Disaster Response Command Center</h1>
             <p>Real-time incident &amp; rescue coordination &middot; Chennai</p>
           </div>
         </div>

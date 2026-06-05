@@ -51,3 +51,5 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend-test
+    
+    
